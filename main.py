@@ -1,42 +1,53 @@
-from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
-from uuid import UUID, uuid4
-app = FastAPI(title="ScholarWay Backend - Version UUID")
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy import create_engine, Column, String, Float, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+import os
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/scholarway")
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+class EtablissementDB(Base):
+    __tablename__ = "etablissements"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    nom = Column(String, nullable=False)
+    type = Column(String)
+    localisation = Column(String)
+    site_web = Column(String)
+
+app = FastAPI(title="ScholarWay Backend - Full Version")
 
 
-class Filiere(BaseModel):
-    id_filiere: UUID = Field(default_factory=uuid4)
-    id_etablissement: UUID
-    nom_filiere: str
-    coefficient_base: float
-    moyenne_min: float
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-class Etablissement(BaseModel):
-    id_etablissement: UUID = Field(default_factory=uuid4)
-    nom: str
-    type: str 
-    localisation: str 
-    siteWeb: str
-
-class Bachelier(BaseModel):
-    id: Optional[UUID] = Field(default_factory=uuid4)
-    nom: str
-    prenom: str
-    email: EmailStr
-    serieBac: str
-    moyenneBac: float = Field(..., ge=0, le=20)
-    budgetMax: float
-
-db_etablissements = [
-    {"id": uuid4(), "nom": "EPL (Polytechnique)", "type": "Ecole", "localisation": "Lomé (Adidogomé)"},
-    {"id": uuid4(), "nom": "ENSI", "type": "Ecole", "localisation": "Lomé"}
-]
-
-@app.post("/inscription", status_code=status.HTTP_201_CREATED)
-def inscrire_bachelier(bachelier: Bachelier):
-    return {"message": "Inscrit avec UUID", "uid": bachelier.id}
+@app.get("/recherche")
+def rechercher_ecole(ville: str = None, db: Session = Depends(get_db)):
+    """Recherche réelle dans PostgreSQL"""
+    query = db.query(EtablissementDB)
+    if ville:
+        query = query.filter(EtablissementDB.localisation.ilike(f"%{ville}%"))
+    return query.all()
 
 @app.get("/orientation/matching")
 def lancer_matching(moyenne: float, serie: str, budget: float):
-    return {"status": "Matching OK", "moyenne": moyenne}
+    """Ton algorithme de matching intelligent"""
+    recommandations = []
+    serie = serie.upper()
+    
+    if serie in ["C", "D"] and moyenne >= 14:
+        if budget >= 500000:
+            recommandations.append({"ecole": "EPL", "filiere": "Génie Logiciel", "score": 0.98})
+    elif serie in ["G2", "G3"] and moyenne >= 12:
+        recommandations.append({"ecole": "IUT", "filiere": "Gestion", "score": 0.85})
+    
+    return {"suggestions": recommandations}
